@@ -1,31 +1,12 @@
 # -*- coding: utf-8 -*-
 #
-# Copyright (c) 2018 nexB Inc. and others. All rights reserved.
-# http://nexb.com and https://github.com/nexB/scancode-toolkit/
-# The ScanCode software is licensed under the Apache License version 2.0.
-# Data generated with ScanCode require an acknowledgment.
+# Copyright (c) nexB Inc. and others. All rights reserved.
 # ScanCode is a trademark of nexB Inc.
+# SPDX-License-Identifier: Apache-2.0
+# See http://www.apache.org/licenses/LICENSE-2.0 for the license text.
+# See https://github.com/nexB/scancode-toolkit for support or download.
+# See https://aboutcode.org for more information about nexB OSS projects.
 #
-# You may not use this software except in compliance with the License.
-# You may obtain a copy of the License at: http://apache.org/licenses/LICENSE-2.0
-# Unless required by applicable law or agreed to in writing, software distributed
-# under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-# CONDITIONS OF ANY KIND, either express or implied. See the License for the
-# specific language governing permissions and limitations under the License.
-#
-# When you publish or redistribute any data created with ScanCode or any ScanCode
-# derivative work, you must accompany this data with the following acknowledgment:
-#
-#  Generated with ScanCode and provided on an "AS IS" BASIS, WITHOUT WARRANTIES
-#  OR CONDITIONS OF ANY KIND, either express or implied. No content created from
-#  ScanCode should be considered or used as legal advice. Consult an Attorney
-#  for any legal advice.
-#  ScanCode is a free software code scanning tool from nexB Inc. and others.
-#  Visit https://github.com/nexB/scancode-toolkit/ for support and download.
-
-from __future__ import absolute_import
-from __future__ import print_function
-
 from collections import deque
 from functools import partial
 import os
@@ -33,13 +14,9 @@ import re
 import sys
 from time import time
 
-from six import string_types
-
 from cluecode import copyrights_hint
 from commoncode.text import toascii
 from commoncode.text import unixlinesep
-from textcode import analysis
-
 
 # Tracing flags
 TRACE = False or os.environ.get('SCANCODE_DEBUG_COPYRIGHT', False)
@@ -62,8 +39,7 @@ if TRACE or TRACE_DEEP:
     logger.setLevel(logging.DEBUG)
 
     def logger_debug(*args):
-        return logger.debug(' '.join(isinstance(a, string_types) and a or repr(a) for a in args))
-
+        return logger.debug(' '.join(isinstance(a, str) and a or repr(a) for a in args))
 
 """
 Detect and collect copyright statements.
@@ -83,6 +59,7 @@ The process consists in:
 
 def detect_copyrights(location, copyrights=True, holders=True, authors=True,
                       include_years=True, include_allrights=False,
+                      demarkup=True,
                       deadline=sys.maxsize):
     """
     Yield tuples of (detection type, detected string, start line, end line)
@@ -91,13 +68,35 @@ def detect_copyrights(location, copyrights=True, holders=True, authors=True,
     Valid detection types are: copyrights, authors, holders.
     These are included in the yielded tuples based on the values of `copyrights=True`, `holders=True`, `authors=True`,
     """
-    detector = CopyrightDetector()
-    numbered_lines = analysis.numbered_text_lines(location, demarkup=True)
+    from textcode.analysis import numbered_text_lines
+    numbered_lines = numbered_text_lines(location, demarkup=demarkup)
     numbered_lines = list(numbered_lines)
     if TRACE:
         numbered_lines = list(numbered_lines)
         for nl in numbered_lines:
             logger_debug('numbered_line:', repr(nl))
+
+    yield from detect_copyrights_from_lines(
+        numbered_lines,
+        copyrights=copyrights,
+        holders=holders,
+        authors=authors,
+        include_years=include_years,
+        include_allrights=include_allrights,
+        deadline=deadline)
+
+
+def detect_copyrights_from_lines(numbered_lines, copyrights=True, holders=True, authors=True,
+          include_years=True, include_allrights=False,
+          deadline=sys.maxsize):
+    """
+    Yield tuples of (detection type, detected string, start line, end line)
+    detected in numbered lines
+    Include years in copyrights if include_years is True.
+    Valid detection types are: copyrights, authors, holders.
+    These are included in the yielded tuples based on the values of `copyrights=True`, `holders=True`, `authors=True`,
+    """
+    detector = CopyrightDetector()
 
     for candidates in candidate_lines(numbered_lines):
 
@@ -120,6 +119,7 @@ def detect_copyrights(location, copyrights=True, holders=True, authors=True,
 ################################################################################
 # DETECTION PROPER
 ################################################################################
+
 
 # simple tokenization: spaces and some punctuation
 splitter = re.compile('[\\t =;]+').split
@@ -298,7 +298,6 @@ class CopyrightDetector(object):
         node_string = u' '.join(t for t, _ in filtered)
         return u' '.join(node_string.split())
 
-
 ################################################################################
 # POS TAGGING AND CHUNKING
 ################################################################################
@@ -317,13 +316,11 @@ _YEAR = (r'('
     '20[0-2][0-9]'  # 2000 to 2019
 ')')
 
-
 _YEAR_SHORT = (r'('
     '[6-9][0-9]'  # 60 to 99
     '|'
     '[0-][0-9]'  # 00 to 29
 ')')
-
 
 _YEAR_YEAR = (r'('
               # fixme   v ....the underscore below is suspicious
@@ -338,7 +335,6 @@ _YEAR_YEAR = (r'('
     '(20[0-2][0-9][\\.,\\-])+20[0-2][0-9]'  # 2001-2012
 ')')
 
-
 _PUNCT = (r'('
     '['
         '\\W'  # not a word (word includes underscore)
@@ -350,7 +346,6 @@ _PUNCT = (r'('
     '|'
     '\\&nbsp'  # html entity sometimes are double escaped
 ')*')  # repeated 0 or more times
-
 
 _YEAR_PUNCT = _YEAR + _PUNCT
 _YEAR_YEAR_PUNCT = _YEAR_YEAR + _PUNCT
@@ -368,7 +363,6 @@ _YEAR_THEN_YEAR_SHORT = (r'(' +
     _YEAR_SHORT_PUNCT +
     ')*' +
 ')')
-
 
 # TODO: this needs to be simplified:
 
@@ -416,6 +410,9 @@ patterns = [
     # A copyright line in some manifest, meta or structured files such Windows PE
     (r'^AssemblyCopyright.?$', 'COPY'),
     (r'^AppCopyright?$', 'COPY'),
+
+    # SPDX-FileCopyrightText as defined by the FSFE Reuse project
+    (r'^[Ss][Pp][Dd][Xx]-[Ff]ile[Cc]opyright[Tt]ext', 'COPY'),
 
     ############################################################################
     # ALL Rights Reserved.
@@ -672,6 +669,10 @@ patterns = [
     (r'^[Cc]ollectively$', 'JUNK'),
     (r'^following$', 'JUNK'),
     (r'^file\.$', 'JUNK'),
+    # version variables listed after Copyright variable in FFmpeg
+    (r'^ExifVersion$', 'JUNK'),
+    (r'^FlashpixVersion$', 'JUNK'),
+    (r'^.+ArmsAndLegs$', 'JUNK'),
 
     # junk when HOLDER(S): typically used in disclaimers instead
     (r'^HOLDER\(S\)$', 'JUNK'),
@@ -756,6 +757,9 @@ patterns = [
     (r'^OTHERS?[,\.]?$', 'JUNK'),
     (r'^Contributors?\:[,\.]?$', 'JUNK'),
     (r'^Version$', 'JUNK'),
+
+    # JUNK from binary
+    (r'^x1b|1H$', 'JUNK'),
 
     ############################################################################
     # Nouns and proper Nouns
@@ -1029,6 +1033,14 @@ patterns = [
     (r'^November$', 'NN'),
     (r'^December$', 'NN'),
 
+    (r'^Name[\.,]?$', 'NN'),
+    (r'^Co-Author[\.,]?$', 'NN'),
+    (r'^Author\'s$', 'NN'),
+    (r'^Co-Author\'s$', 'NN'),
+    #  the Universal Copyright Convention (1971 Paris text).
+    (r'^Convention[\.,]?$', 'NN'),
+    (r'^Paris[\.,]?$', 'NN'),
+
     # we do not include Jan and Jun that are common enough first names
     (r'^(Feb|Mar|Apr|May|Jul|Aug|Sep|Oct|Nov|Dec)$', 'NN'),
     (r'^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$', 'NN'),
@@ -1113,7 +1125,6 @@ patterns = [
     # EPFL-LRC/ICA
     (r'^[A-Z]{3,6}-[A-Z]{3,6}/[A-Z]{3,6}', 'NNP'),
 
-
     ############################################################################
     # Named entities: companies, groups, universities, etc
     ############################################################################
@@ -1170,7 +1181,7 @@ patterns = [
     (r'^[Ll]\.?[Ll]\.?[CcPp]\.?,?$', 'COMP'),
     (r'^L\.P\.?$', 'COMP'),
     (r'^[Ss]ubsidiary$', 'COMP'),
-    (r'^[Ss]ubsidiaries$', 'COMP'),
+    (r'^[Ss]ubsidiaries\.?$', 'COMP'),
     (r'^[Ss]ubsidiary\(\-ies\)\.?$', 'COMP'),
 
     # company suffix : SA, SAS, AG, AB, AS, CO, labs followed by a dot
@@ -1446,11 +1457,11 @@ patterns = [
     # URLS such as <(http://fedorahosted.org/lohit)> or ()
     (r'[<\(]https?:.*[>\)]', 'URL'),
     # URLS such as ibm.com without a scheme
-    (r'\s?[a-z0-9A-Z\-\.\_]+\.([Cc][Oo][Mm]|[Nn][Ee][Tt]|info|[Oo][Rr][Gg]|us|mil|io|edu|co\.[a-z][a-z]|eu|ch|fr|de|be|nl|au|biz)\s?\.?$', 'URL2'),
+    (r'\s?[a-z0-9A-Z\-\.\_]+\.([Cc][Oo][Mm]|[Nn][Ee][Tt]|[Oo][Rr][Gg]|us|mil|io|edu|co\.[a-z][a-z]|eu|ch|fr|de|be|nl|au|biz)\s?\.?$', 'URL2'),
     # TODO: add more extensions: there are so main TLD these days!
     # URL wrapped in () or <>
-    (r'[\(<]+\s?[a-z0-9A-Z\-\.\_]+\.(com|net|info|org|us|mil|io|edu|co\.[a-z][a-z]|eu|ch|fr|jp|de|be|nl|au|biz)\s?[\.\)>]+$', 'URL'),
-    (r'<?a?.(href)?.\(?[a-z0-9A-Z\-\.\_]+\.(com|net|info|org|us|mil|io|edu|co\.[a-z][a-z]|eu|ch|fr|jp|de|be|nl|au|biz)[\.\)>]?$', 'URL'),
+    (r'[\(<]+\s?[a-z0-9A-Z\-\.\_]+\.(com|net|org|us|mil|io|edu|co\.[a-z][a-z]|eu|ch|fr|jp|de|be|nl|au|biz)\s?[\.\)>]+$', 'URL'),
+    (r'<?a?.(href)?.\(?[a-z0-9A-Z\-\.\_]+\.(com|net|org|us|mil|io|edu|co\.[a-z][a-z]|eu|ch|fr|jp|de|be|nl|au|biz)[\.\)>]?$', 'URL'),
     # derived from regex in cluecode.finder
     (r'<?a?.(href)?.('
      r'(?:http|ftp|sftp)s?://[^\s<>\[\]"]+'
@@ -1726,8 +1737,9 @@ grammar = """
     NAME: {<NNP> <CD> <NNP>}        #630
     NAME: {<COMP> <NAME>+}        #640
 
+    # Copyright 2018-2019 @paritytech/substrate-light-ui authors & contributors
     # and other contributors
-    NAME: {<CC> <NN>? <CONTRIBUTORS>}        #644
+    NAME: {<AUTHS>? <CC> <NN>? <CONTRIBUTORS>}        #644
 
     NAME: {<NNP|CAPS>+ <AUTHS|AUTHDOT|CONTRIBUTORS>}        #660
 
@@ -2007,9 +2019,17 @@ grammar = """
     # Copyright (c) 2004, The Codehaus
     COPYRIGHT: {<COPY>  <COPY>  <YR-RANGE>  <NN>  <NNP>} #22790
 
+    # Copyright (c) 2015, Contributors
+    COPYRIGHT: {<COPY>+  <YR-RANGE>  <CONTRIBUTORS> <ALLRIGHTRESERVED>?} #22791
+
+    # Copyright 1996, 1997 Linux International.
+    COPYRIGHT: {<COPY>+  <YR-RANGE>  <NN>  <NNP>} #22792
+
     # Copyright (c) 2017 odahcam
-    COPYRIGHT: {<COPY>  <COPY>  <YR-RANGE>  <NN> <ALLRIGHTRESERVED>} #22791
-    COPYRIGHT: {<COPY>  <COPY>  <YR-RANGE>  <NN>} #22792
+    COPYRIGHT: {<COPY>+  <YR-RANGE>  <NN> <ALLRIGHTRESERVED>?} #22793
+
+    # Licensed material of Foobar Company, All Rights Reserved, (C) 2005
+    COPYRIGHT: {<COMPANY>  <ALLRIGHTRESERVED>  <COPYRIGHT>} #22794
 
     COPYRIGHT2: {<COPY>+ <NN|CAPS>? <YR-RANGE>+ <PN>*}        #2280
 
@@ -2343,10 +2363,10 @@ grammar = """
 
 """
 
-
 ################################################################################
 # MAIN CLEANUP ENTRY POINTS
 ################################################################################
+
 
 def refine_copyright(c):
     """
@@ -2430,7 +2450,6 @@ def refine_names(s, prefixes):
     s = s.strip()
     return s
 
-
 ################################################################################
 # COPYRIGHTS CLEANUPS
 ################################################################################
@@ -2466,7 +2485,6 @@ PREFIXES = frozenset([
     '<p>',
 ])
 
-
 COPYRIGHTS_SUFFIXES = frozenset([
     'copyright',
     '.',
@@ -2480,7 +2498,6 @@ COPYRIGHTS_SUFFIXES = frozenset([
     'all',
     'some',
 ])
-
 
 # Set of statements that get detected and are junk/false positive
 # note: this must be lowercase and be kept to a minimum.
@@ -2581,8 +2598,15 @@ COPYRIGHTS_JUNK = frozenset([
     'copyright (c) <holders>',
     'copyright (c) , and others',
     'copyright from license',
+    'and/or the universal copyright convention 1971',
+    'universal copyright convention',
+    'copyright 2005 m. y. name',
+    'copyright 2005 m. y.',
+    'copyright 2003 m. y. name',
+    'copyright 2003 m. y.',
+    'copyright 2001 m. y. name',
+    'copyright 2001 m. y.',
 ])
-
 
 ################################################################################
 # AUTHORS CLEANUPS
@@ -2665,7 +2689,6 @@ HOLDERS_PREFIXES = frozenset(set.union(
     ])
 ))
 
-
 HOLDERS_PREFIXES_WITH_ALL = HOLDERS_PREFIXES.union(set(['all']))
 
 HOLDERS_SUFFIXES = frozenset([
@@ -2693,7 +2716,6 @@ HOLDERS_SUFFIXES = frozenset([
     'a',
 ])
 
-
 # these final holders are ignored.
 HOLDERS_JUNK = frozenset([
     'a href',
@@ -2713,12 +2735,13 @@ HOLDERS_JUNK = frozenset([
     'author',
 ])
 
-
 ################################################################################
 # TEXT POST PROCESSING and CLEANUP
 ################################################################################
 
+
 def remove_dupe_copyright_words(c):
+    c = c.replace('SPDX-FileCopyrightText', 'Copyright')
     # from .net assemblies
     c = c.replace('AssemblyCopyright', 'Copyright')
     c = c.replace('AppCopyright', 'Copyright')
@@ -2950,10 +2973,10 @@ def strip_balanced_edge_parens(s):
             return c
     return s
 
-
 ################################################################################
 # CANDIDATE LINES SELECTION
 ################################################################################
+
 
 remove_non_chars = re.compile(r'[^a-z0-9]').sub
 
@@ -3050,26 +3073,29 @@ def candidate_lines(numbered_lines):
             candidates_clear()
             in_copyright = 0
             previous_chars = None
-            continue
 
         elif is_candidate(prepped):
             # the state is now "in copyright"
             in_copyright = 2
             candidates_append(numbered_line)
+
             previous_chars = chars_only
             if TRACE: logger_debug('   candidate_lines: line is candidate')
+
 
         elif 's>' in line:
             # this is for debian-style <s></s> copyright name tags
             # the state is now "in copyright"
             in_copyright = 2
             candidates_append(numbered_line)
+
             previous_chars = chars_only
             if TRACE: logger_debug('   candidate_lines: line is <s></s>candidate')
 
         elif in_copyright > 0:
             if ((not chars_only)
             and (not previous_chars.endswith(('copyright', 'copyrights', 'copyrightsby', 'copyrightby',)))):
+
                 # completely empty or only made of punctuations
                 if TRACE:
                     cands = list(candidates)
@@ -3079,8 +3105,8 @@ def candidate_lines(numbered_lines):
                 candidates_clear()
                 in_copyright = 0
                 previous_chars = None
-            else:
 
+            else:
                 candidates_append(numbered_line)
                 # and decrement our state
                 in_copyright -= 1
@@ -3103,10 +3129,10 @@ def candidate_lines(numbered_lines):
 
         yield list(candidates)
 
-
 ################################################################################
 # TEXT PRE PROCESSING
 ################################################################################
+
 
 # this catches tags but not does not remove the text inside tags
 remove_tags = re.compile(
@@ -3131,6 +3157,7 @@ def strip_markup(text, dedeb=True):
     else:
         return text
 
+
 # this catches the common C-style percent string formatting codes
 remove_printf_format_codes = re.compile(r' [\#\%][a-zA-Z] ').sub
 
@@ -3151,88 +3178,99 @@ remove_man_comment_markers = re.compile(r'.\\"').sub
 def prepare_text_line(line, dedeb=True, to_ascii=True):
     """
     Prepare a unicode `line` of text for copyright detection.
-    If `dedeb` is True, also remove "Debian" <s> </s> markup tags.
+        If `dedeb` is True, also remove "Debian" <s> </s> markup tags.
     """
     # remove some junk in man pages: \(co
-    line = line.replace(u'\\\\ co', u' ')
-    line = line.replace(u'\\ co', u' ')
-    line = line.replace(u'(co ', u' ')
-
+    line = (line
+        .replace(u'\\\\ co', u' ')
+        .replace(u'\\ co', u' ')
+        .replace(u'(co ', u' ')
+    )
     line = remove_printf_format_codes(u' ', line)
 
     # un common comment line prefixes
     line = remove_comment_markers(u' ', line)
     line = remove_man_comment_markers(u' ', line)
-    # C and C++ style markers
-    line = line.replace(u'^//', u' ')
-    line = line.replace(u'/*', u' ').replace(u'*/', u' ')
 
-    # un common pipe chars in some ascii art
-    line = line.replace(u'|', u' ')
+    line = (line
+        # C and C++ style markers
+        .replace(u'^//', u' ')
+        .replace(u'/*', u' ').replace(u'*/', u' ')
 
-    # normalize copyright signs and spacing around them
-    line = line.replace(u'"Copyright', u'" Copyright')
-    line = line.replace(u'( C)', u' (c) ')
-    line = line.replace(u'(C)', u' (c) ')
-    line = line.replace(u'(c)', u' (c) ')
-    # the case of \251 is tested by 'weirdencoding.h'
-    line = line.replace(u'©', u' (c) ')
-    line = line.replace(u'\251', u' (c) ')
-    line = line.replace(u'&copy;', u' (c) ')
-    line = line.replace(u'&copy', u' (c) ')
-    line = line.replace(u'&#169;', u' (c) ')
-    line = line.replace(u'&#xa9;', u' (c) ')
-    line = line.replace(u'&#XA9;', u' (c) ')
-    line = line.replace(u'\xa9', u' (c) ')
-    line = line.replace(u'\\XA9', u' (c) ')
-    # \xc2 is a Â
-    line = line.replace(u'\xc2', u'')
-    line = line.replace(u'\\xc2', u'')
+        # un common pipe chars in some ascii art
+        .replace(u'|', u' ')
 
-    # not really a dash: an emdash
-    line = line.replace(u'–', u'-')
+        # normalize copyright signs and spacing around them
+        .replace(u'"Copyright', u'" Copyright')
+        .replace(u'( C)', u' (c) ')
+        .replace(u'(C)', u' (c) ')
+        .replace(u'(c)', u' (c) ')
+        # the case of \251 is tested by 'weirdencoding.h'
+        .replace(u'©', u' (c) ')
+        .replace(u'\251', u' (c) ')
+        .replace(u'&copy;', u' (c) ')
+        .replace(u'&copy', u' (c) ')
+        .replace(u'&#169;', u' (c) ')
+        .replace(u'&#xa9;', u' (c) ')
+        .replace(u'&#XA9;', u' (c) ')
+        .replace(u'u00A9', u' (c) ')
+        .replace(u'u00a9', u' (c) ')
+        .replace(u'\xa9', u' (c) ')
+        .replace(u'\\XA9', u' (c) ')
+        # \xc2 is a Â
+        .replace(u'\xc2', u'')
+        .replace(u'\\xc2', u'')
 
-    # TODO: add more HTML entities replacements
-    # see http://www.htmlhelp.com/reference/html40/entities/special.html
-    # convert html entities &#13;&#10; CR LF to space
-    line = line.replace(u'&#13;&#10;', u' ')
-    line = line.replace(u'&#13;', u' ')
-    line = line.replace(u'&#10;', u' ')
+        # not really a dash: an emdash
+        .replace(u'–', u'-')
 
-    # spaces
-    line = line.replace(u'&ensp;', u' ')
-    line = line.replace(u'&emsp;', u' ')
-    line = line.replace(u'&thinsp;', u' ')
+        # TODO: add more HTML entities replacements
+        # see http://www.htmlhelp.com/reference/html40/entities/special.html
+        # convert html entities &#13;&#10; CR LF to space
+        .replace(u'&#13;&#10;', u' ')
+        .replace(u'&#13;', u' ')
+        .replace(u'&#10;', u' ')
 
-    # common named HTML entities
-    line = line.replace(u'&quot;', u'"').replace(u'&#34;', u'"')
-    line = line.replace(u'&amp;', u'&').replace(u'&#38;', u'&')
-    line = line.replace(u'&gt;', u'>').replace(u'&#62;', u'>')
-    line = line.replace(u'&lt;', u'<').replace(u'&#60;', u'<')
+        # spaces
+        .replace(u'&ensp;', u' ')
+        .replace(u'&emsp;', u' ')
+        .replace(u'&thinsp;', u' ')
 
-    # normalize (possibly repeated) quotes to unique single quote '
-    # backticks ` and "
-    line = line.replace(u'`', u"'")
-    line = line.replace(u'"', u"'")
+        # common named HTML entities
+        .replace(u'&quot;', u'"')
+        .replace(u'&#34;', u'"')
+        .replace(u'&amp;', u'&')
+        .replace(u'&#38;', u'&')
+        .replace(u'&gt;', u'>')
+        .replace(u'&#62;', u'>')
+        .replace(u'&lt;', u'<')
+        .replace(u'&#60;', u'<')
+
+        # normalize (possibly repeated) quotes to unique single quote '
+        # backticks ` and "
+        .replace(u'`', u"'")
+        .replace(u'"', u"'")
+    )
     # keep only one quote
     line = fold_consecutive_quotes(u"'", line)
 
     # treat some escaped literal CR, LF, tabs, \00 as new lines
     # such as in code literals: a="\\n some text"
-    line = line.replace(u'\\t', u' ')
-    line = line.replace(u'\\n', u' ')
-    line = line.replace(u'\\r', u' ')
-    line = line.replace(u'\\0', u' ')
+    line = (line
+        .replace(u'\\t', u' ')
+        .replace(u'\\n', u' ')
+        .replace(u'\\r', u' ')
+        .replace(u'\\0', u' ')
 
-    # TODO: why backslashes?
-    line = line.replace(u'\\', u' ')
+        # TODO: why backslashes?
+        .replace(u'\\', u' ')
 
-    # replace ('
-    line = line.replace(u'("', u' ')
-    # some trailing garbage ')
-    line = line.replace(u"')", u' ')
-    line = line.replace(u"],", u' ')
-
+        # replace ('
+        .replace(u'("', u' ')
+        # some trailing garbage ')
+        .replace(u"')", u' ')
+        .replace(u"],", u' ')
+    )
     # note that we do not replace the debian tag by a space:  we remove it
     line = strip_markup(line, dedeb=dedeb)
 
